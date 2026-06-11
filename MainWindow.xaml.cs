@@ -1097,6 +1097,9 @@ namespace DesktopVideoWallpaper
                     _targetScreenIndex = capturedIndex;
                     SaveSettings();
                     
+                    // Khôi phục lại nhanh wallpaper hệ thống ở màn hình cũ (không truyền flag truyền tin để tránh lag)
+                    RestoreSystemWallpaper(false);
+
                     // Định vị lại hình nền ngay lập tức
                     SetupWallpaperWindow();
                     
@@ -1105,9 +1108,6 @@ namespace DesktopVideoWallpaper
                     {
                         ToggleInteractiveMode(true);
                     }
-
-                    // Làm mới nhanh giao diện Desktop để khôi phục wallpaper cũ mà không gây lag
-                    RefreshDesktop();
                     
                     BuildScreensMenu();
                 };
@@ -1836,7 +1836,7 @@ namespace DesktopVideoWallpaper
 
             if (_isExplicitShutdown)
             {
-                RestoreSystemWallpaper();
+                RestoreSystemWallpaper(true);
             }
             else
             {
@@ -1873,7 +1873,7 @@ namespace DesktopVideoWallpaper
             }
         }
 
-        private void RestoreSystemWallpaper()
+        private void RestoreSystemWallpaper(bool forceBroadcast = false)
         {
             try
             {
@@ -1885,7 +1885,8 @@ namespace DesktopVideoWallpaper
                         string? wallpaperPath = key.GetValue("Wallpaper") as string;
                         // Nếu Registry không chứa đường dẫn (ví dụ: đang dùng Solid Color), ta truyền chuỗi rỗng để Windows xóa ảnh nền và khôi phục màu nền
                         wallpaperPath = wallpaperPath ?? "";
-                        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, wallpaperPath, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+                        int flags = forceBroadcast ? (SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) : 0;
+                        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, wallpaperPath, flags);
                     }
                 }
             }
@@ -1893,32 +1894,6 @@ namespace DesktopVideoWallpaper
             {
                 try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log"), $"RestoreSystemWallpaper error: {ex}\n"); } catch { }
             }
-        }
-
-        private void RefreshDesktop()
-        {
-            try
-            {
-                IntPtr progman = FindWindow("Progman", null);
-                if (progman != IntPtr.Zero)
-                {
-                    RedrawWindow(progman, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0008);
-                }
-
-                EnumWindows((hwnd, lParam) =>
-                {
-                    var className = new System.Text.StringBuilder(256);
-                    if (GetClassName(hwnd, className, className.Capacity) > 0)
-                    {
-                        if (className.ToString() == "WorkerW")
-                        {
-                            RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0008);
-                        }
-                    }
-                    return true;
-                }, IntPtr.Zero);
-            }
-            catch { }
         }
     }
 }
