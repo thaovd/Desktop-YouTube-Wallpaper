@@ -1286,7 +1286,7 @@ namespace DesktopVideoWallpaper
             });
         }
 
-        private void ReloadYouTubeVideo()
+        private async void ReloadYouTubeVideo()
         {
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
             try { File.AppendAllText(logPath, "ReloadYouTubeVideo: started\n"); } catch { }
@@ -1327,9 +1327,7 @@ namespace DesktopVideoWallpaper
             }
             try
             {
-                var task = MyWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(coordScript);
-                task.Wait(1000);
-                _coordinateScriptId = task.Result;
+                _coordinateScriptId = await MyWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(coordScript);
             }
             catch (Exception ex)
             {
