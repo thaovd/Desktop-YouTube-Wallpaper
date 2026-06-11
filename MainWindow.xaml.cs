@@ -125,6 +125,13 @@ namespace DesktopVideoWallpaper
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+
+        private const int SPI_SETDESKWALLPAPER = 20;
+        private const int SPIF_UPDATEINIFILE = 0x01;
+        private const int SPIF_SENDCHANGE = 0x02;
+
         private const uint SWP_NOZORDER = 0x0004;   // Giữ nguyên thứ tự Z-order hiện có.
         private const uint SWP_SHOWWINDOW = 0x0040; // Hiển thị cửa sổ sau khi định vị lại.
 
@@ -1730,7 +1737,11 @@ namespace DesktopVideoWallpaper
 
             base.OnClosed(e);
 
-            if (!_isExplicitShutdown)
+            if (_isExplicitShutdown)
+            {
+                RestoreSystemWallpaper();
+            }
+            else
             {
                 // WorkerW bị đóng bởi OS (Task View, Virtual Desktop switch, đổi độ phân giải...).
                 // Khởi tạo lại MainWindow sau 1 giây để màn hình ổn định.
@@ -1762,6 +1773,28 @@ namespace DesktopVideoWallpaper
                         try { File.AppendAllText(errPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error in recreate task: {ex}\n"); } catch { }
                     }
                 });
+            }
+        }
+
+        private void RestoreSystemWallpaper()
+        {
+            try
+            {
+                string keyPath = @"Control Panel\Desktop";
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(keyPath))
+                {
+                    if (key != null)
+                    {
+                        string? wallpaperPath = key.GetValue("Wallpaper") as string;
+                        // Nếu Registry không chứa đường dẫn (ví dụ: đang dùng Solid Color), ta truyền chuỗi rỗng để Windows xóa ảnh nền và khôi phục màu nền
+                        wallpaperPath = wallpaperPath ?? "";
+                        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, wallpaperPath, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log"), $"RestoreSystemWallpaper error: {ex}\n"); } catch { }
             }
         }
     }
