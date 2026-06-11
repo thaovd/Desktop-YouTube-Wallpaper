@@ -224,6 +224,7 @@ namespace DesktopVideoWallpaper
         private System.Windows.Forms.ToolStripMenuItem? _interactiveMenuItem;
         private System.Windows.Forms.ToolStripMenuItem? _zoomMenuItem;
         private bool _isInteractiveMode = false;
+        private static bool _isExplicitShutdown = false;
         
         private IntPtr _mouseHookId = IntPtr.Zero;
         private LowLevelMouseProc? _mouseProc;
@@ -235,6 +236,7 @@ namespace DesktopVideoWallpaper
         public MainWindow()
         {
             InitializeComponent();
+            System.Windows.Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         }
 
         /// <summary>
@@ -1434,6 +1436,7 @@ namespace DesktopVideoWallpaper
         {
             this.Dispatcher.Invoke(() =>
             {
+                _isExplicitShutdown = true;
                 if (_notifyIcon != null)
                 {
                     _notifyIcon.Visible = false;
@@ -1608,6 +1611,7 @@ namespace DesktopVideoWallpaper
 
                 this.Dispatcher.Invoke(() =>
                 {
+                    _isExplicitShutdown = true;
                     System.Windows.Application.Current.Shutdown();
                 });
             }
@@ -1629,6 +1633,20 @@ namespace DesktopVideoWallpaper
                 _notifyIcon.Dispose();
             }
             base.OnClosed(e);
+
+            if (!_isExplicitShutdown)
+            {
+                // WorkerW bị đóng bởi OS (Task View, Virtual Desktop switch, đổi độ phân giải...).
+                // Khởi tạo lại MainWindow sau 1 giây để màn hình ổn định.
+                Task.Delay(1000).ContinueWith(t =>
+                {
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        var newWindow = new MainWindow();
+                        newWindow.Show();
+                    });
+                });
+            }
         }
     }
 }

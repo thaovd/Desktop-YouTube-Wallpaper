@@ -67,7 +67,16 @@ if ($isLoggedIn) {
     Write-Host "Da dang nhap GitHub CLI thanh cong. Tien hanh tao/cap nhat Release..." -ForegroundColor Green
     
     # Tao hoac cap nhat Release tren GitHub
-    & $ghPath release create $version $installerPath --title "$version - Ban cai dat chinh thuc" --notes "Ban phat hanh tu dong dong goi tu ma nguon moi nhat." --clobber
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $createResult = & $ghPath release create $version $installerPath --title "$version - Ban cai dat chinh thuc" --notes "Ban phat hanh tu dong dong goi tu ma nguon moi nhat." 2>&1
+    
+    # Neu release da ton tai thi no se fail, ta thuc hien upload de de len file cu bang --clobber
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Release da ton tai. Dang cap nhat/ghi de asset bang upload --clobber..." -ForegroundColor Yellow
+        & $ghPath release upload $version $installerPath --clobber
+    }
+    $ErrorActionPreference = $oldPreference
     
     Write-Host "Da tai len GitHub Release thanh cong!" -ForegroundColor Green
 } else {
