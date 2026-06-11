@@ -386,33 +386,8 @@ namespace DesktopVideoWallpaper
                 string injectScript = @"
 (function() {
     var fullscreenElement = null;
-    
-    // Tạo stylesheet định nghĩa class fake fullscreen
-    var styleEl = document.createElement('style');
-    styleEl.innerHTML = `
-        .webview-fake-fullscreen {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: 100vh !important;
-            z-index: 2147483647 !important;
-            box-sizing: border-box !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: black !important;
-        }
-        body.webview-has-fake-fullscreen {
-            overflow: hidden !important;
-        }
-    `;
-    
-    // Inject style vào document
-    if (document.head) {
-        document.head.appendChild(styleEl);
-    } else {
-        document.documentElement.appendChild(styleEl);
-    }
+    var originalStyles = new Map();
+    var originalBodyOverflow = '';
 
     function triggerFullscreenChange() {
         var event = new Event('fullscreenchange', { bubbles: true, cancelable: true });
@@ -428,8 +403,38 @@ namespace DesktopVideoWallpaper
             customExitFullscreen();
         }
         fullscreenElement = el;
-        el.classList.add('webview-fake-fullscreen');
-        document.body.classList.add('webview-has-fake-fullscreen');
+
+        // Save original styles to restore later
+        originalStyles.set(el, {
+            position: el.style.position || '',
+            top: el.style.top || '',
+            left: el.style.left || '',
+            width: el.style.width || '',
+            height: el.style.height || '',
+            zIndex: el.style.zIndex || '',
+            boxSizing: el.style.boxSizing || '',
+            margin: el.style.margin || '',
+            padding: el.style.padding || '',
+            background: el.style.background || ''
+        });
+
+        // Apply fullscreen styles inline to bypass CSP restriction on stylesheet injections
+        el.style.setProperty('position', 'fixed', 'important');
+        el.style.setProperty('top', '0', 'important');
+        el.style.setProperty('left', '0', 'important');
+        el.style.setProperty('width', '100vw', 'important');
+        el.style.setProperty('height', '100vh', 'important');
+        el.style.setProperty('z-index', '2147483647', 'important');
+        el.style.setProperty('box-sizing', 'border-box', 'important');
+        el.style.setProperty('margin', '0', 'important');
+        el.style.setProperty('padding', '0', 'important');
+        el.style.setProperty('background', 'black', 'important');
+
+        if (document.body) {
+            originalBodyOverflow = document.body.style.overflow || '';
+            document.body.style.setProperty('overflow', 'hidden', 'important');
+        }
+
         triggerFullscreenChange();
         return Promise.resolve();
     };
@@ -446,44 +451,63 @@ namespace DesktopVideoWallpaper
         HTMLVideoElement.prototype.webkitExitFullScreen = customExitFullscreen;
     }
 
-    Object.defineProperty(document, 'fullscreenElement', {
-        get: function() { return fullscreenElement; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'webkitFullscreenElement', {
-        get: function() { return fullscreenElement; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'mozFullScreenElement', {
-        get: function() { return fullscreenElement; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'msFullscreenElement', {
-        get: function() { return fullscreenElement; },
-        configurable: true
-    });
+    // Define properties on document instance
+    Object.defineProperty(document, 'fullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+    Object.defineProperty(document, 'mozFullScreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+    Object.defineProperty(document, 'msFullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
 
-    Object.defineProperty(document, 'fullscreenEnabled', {
-        get: function() { return true; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'webkitFullscreenEnabled', {
-        get: function() { return true; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'mozFullScreenEnabled', {
-        get: function() { return true; },
-        configurable: true
-    });
-    Object.defineProperty(document, 'msFullscreenEnabled', {
-        get: function() { return true; },
-        configurable: true
-    });
+    Object.defineProperty(document, 'fullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'mozFullScreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'msFullscreenEnabled', { get: function() { return true; }, configurable: true });
+
+    // Define properties on Document prototype for robust framework detection
+    if (typeof Document !== 'undefined' && Document.prototype) {
+        Object.defineProperty(Document.prototype, 'fullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'webkitFullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'mozFullScreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'msFullscreenElement', { get: function() { return fullscreenElement; }, configurable: true });
+
+        Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: function() { return true; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'webkitFullscreenEnabled', { get: function() { return true; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'mozFullScreenEnabled', { get: function() { return true; }, configurable: true });
+        Object.defineProperty(Document.prototype, 'msFullscreenEnabled', { get: function() { return true; }, configurable: true });
+    }
 
     var customExitFullscreen = function() {
         if (fullscreenElement) {
-            fullscreenElement.classList.remove('webview-fake-fullscreen');
-            document.body.classList.remove('webview-has-fake-fullscreen');
+            var el = fullscreenElement;
+            var orig = originalStyles.get(el);
+            if (orig) {
+                el.style.position = orig.position;
+                el.style.top = orig.top;
+                el.style.left = orig.left;
+                el.style.width = orig.width;
+                el.style.height = orig.height;
+                el.style.zIndex = orig.zIndex;
+                el.style.boxSizing = orig.boxSizing;
+                el.style.margin = orig.margin;
+                el.style.padding = orig.padding;
+                el.style.background = orig.background;
+                originalStyles.delete(el);
+            } else {
+                el.style.removeProperty('position');
+                el.style.removeProperty('top');
+                el.style.removeProperty('left');
+                el.style.removeProperty('width');
+                el.style.removeProperty('height');
+                el.style.removeProperty('z-index');
+                el.style.removeProperty('box-sizing');
+                el.style.removeProperty('margin');
+                el.style.removeProperty('padding');
+                el.style.removeProperty('background');
+            }
+
+            if (document.body) {
+                document.body.style.overflow = originalBodyOverflow;
+            }
+
             fullscreenElement = null;
             triggerFullscreenChange();
         }
@@ -704,7 +728,7 @@ namespace DesktopVideoWallpaper
                 {
                     targetUrl = "https://" + targetUrl;
                 }
-                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
+                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture; fullscreen\" allowfullscreen=\"true\" webkitallowfullscreen=\"true\" mozallowfullscreen=\"true\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
                 scriptHtml = "var player = null;";
             }
 
