@@ -56,11 +56,6 @@
             </StackPanel>
         </Grid>
         
-        <!-- Background Image for Non-YouTube websites -->
-        <Image x:Name="WpfBackground" 
-               Stretch="Fill" 
-               Visibility="Collapsed" />
-        
         <!-- Microsoft WebView2 Control -->
         <wv2:WebView2 x:Name="MyWebView" 
                       HorizontalAlignment="Stretch" 
