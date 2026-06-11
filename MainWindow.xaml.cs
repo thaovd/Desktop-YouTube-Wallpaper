@@ -373,6 +373,15 @@ namespace DesktopVideoWallpaper
                 MyWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
                 MyWebView.WebMessageReceived += MyWebView_WebMessageReceived;
+                MyWebView.CoreWebView2.NavigationStarting += (sender, e) =>
+                {
+                    string uri = e.Uri ?? "";
+                    if (!uri.StartsWith("http://app.local/", StringComparison.OrdinalIgnoreCase) && 
+                        !uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+                    {
+                        e.Cancel = true;
+                    }
+                };
 
                 string injectScript = @"
 (function() {
@@ -429,6 +438,13 @@ namespace DesktopVideoWallpaper
     if (Element.prototype.webkitRequestFullscreen) Element.prototype.webkitRequestFullscreen = customRequestFullscreen;
     if (Element.prototype.mozRequestFullScreen) Element.prototype.mozRequestFullScreen = customRequestFullscreen;
     if (Element.prototype.msRequestFullscreen) Element.prototype.msRequestFullscreen = customRequestFullscreen;
+
+    if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype) {
+        HTMLVideoElement.prototype.webkitEnterFullscreen = customRequestFullscreen;
+        HTMLVideoElement.prototype.webkitExitFullscreen = customExitFullscreen;
+        HTMLVideoElement.prototype.webkitEnterFullScreen = customRequestFullscreen;
+        HTMLVideoElement.prototype.webkitExitFullScreen = customExitFullscreen;
+    }
 
     Object.defineProperty(document, 'fullscreenElement', {
         get: function() { return fullscreenElement; },
@@ -688,7 +704,7 @@ namespace DesktopVideoWallpaper
                 {
                     targetUrl = "https://" + targetUrl;
                 }
-                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture; fullscreen\" allowfullscreen=\"true\" webkitallowfullscreen=\"true\" mozallowfullscreen=\"true\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
+                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
                 scriptHtml = "var player = null;";
             }
 
