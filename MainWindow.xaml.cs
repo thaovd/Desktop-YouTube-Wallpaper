@@ -359,7 +359,7 @@ namespace DesktopVideoWallpaper
                 string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
                 try { File.AppendAllText(logPath, $"UserDataFolder: {userDataFolder}\n"); } catch { }
 
-                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required --disable-web-security");
                 try { File.AppendAllText(logPath, "Creating CoreWebView2Environment...\n"); } catch { }
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
                 try { File.AppendAllText(logPath, "CoreWebView2Environment created successfully\n"); } catch { }
@@ -996,6 +996,25 @@ namespace DesktopVideoWallpaper
             });
         }
 
+        private bool IsYouTubeUrlOrId(string urlOrId)
+        {
+            if (string.IsNullOrWhiteSpace(urlOrId)) return false;
+            urlOrId = urlOrId.Trim();
+            
+            if (urlOrId.Length == 11 && !urlOrId.Contains("/") && !urlOrId.Contains(".") && !urlOrId.Contains("?"))
+            {
+                return true;
+            }
+            
+            if (urlOrId.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                urlOrId.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            
+            return false;
+        }
+
         private void ReloadYouTubeVideo()
         {
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
@@ -1008,20 +1027,74 @@ namespace DesktopVideoWallpaper
 
             string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
             string htmlFolder = Path.Combine(userDataFolder, "Html");
-            string htmlPath = Path.Combine(htmlFolder, "index.html");
-            try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: htmlPath={htmlPath}\n"); } catch { }
-            
-            string html = GetYouTubeEmbedHtml(_currentVideoId);
             
             if (!Directory.Exists(htmlFolder))
             {
                 Directory.CreateDirectory(htmlFolder);
             }
-            File.WriteAllText(htmlPath, html, System.Text.Encoding.UTF8);
-            try { File.AppendAllText(logPath, "ReloadYouTubeVideo: index.html written successfully\n"); } catch { }
 
-            MyWebView.CoreWebView2.Navigate("http://app.local/index.html");
-            try { File.AppendAllText(logPath, "ReloadYouTubeVideo: Navigate called\n"); } catch { }
+            bool isYoutube = IsYouTubeUrlOrId(_currentVideoId);
+            try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: isYoutube={isYoutube}, _currentVideoId={_currentVideoId}\n"); } catch { }
+
+            if (isYoutube)
+            {
+                string htmlPath = Path.Combine(htmlFolder, "index.html");
+                string html = GetYouTubeEmbedHtml(_currentVideoId);
+                File.WriteAllText(htmlPath, html, System.Text.Encoding.UTF8);
+                try { File.AppendAllText(logPath, "ReloadYouTubeVideo: index.html written successfully\n"); } catch { }
+
+                MyWebView.CoreWebView2.Navigate("http://app.local/index.html");
+                try { File.AppendAllText(logPath, "ReloadYouTubeVideo: Navigate to http://app.local/index.html called\n"); } catch { }
+            }
+            else
+            {
+                string targetUrl = _currentVideoId;
+                if (!targetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+                    !targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetUrl = "https://" + targetUrl;
+                }
+
+                string wrapperPath = Path.Combine(htmlFolder, "wrapper.html");
+                string wrapperHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""utf-8"">
+    <style>
+        html, body {{
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+        }}
+        iframe {{
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+        }}
+    </style>
+</head>
+<body>
+    <iframe id=""web-iframe"" src=""{targetUrl}"" allow=""autoplay; encrypted-media; picture-in-picture; fullscreen"" allowfullscreen=""true""></iframe>
+</body>
+</html>";
+
+                try
+                {
+                    File.WriteAllText(wrapperPath, wrapperHtml, System.Text.Encoding.UTF8);
+                    try { File.AppendAllText(logPath, "ReloadYouTubeVideo: wrapper.html written successfully\n"); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Failed to write wrapper.html: {ex.Message}\n"); } catch { }
+                }
+
+                MyWebView.CoreWebView2.Navigate("http://app.local/wrapper.html");
+                try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Navigate to http://app.local/wrapper.html (framing {targetUrl}) called\n"); } catch { }
+            }
         }
 
         private void InitializeTrayIcon()
@@ -1961,6 +2034,8 @@ namespace DesktopVideoWallpaper
             string url = e.Request.Uri;
             if (string.IsNullOrEmpty(url)) return;
 
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+
             bool isM3u8 = url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase) || 
                           url.Contains("m3u8", StringComparison.OrdinalIgnoreCase);
 
@@ -1968,7 +2043,29 @@ namespace DesktopVideoWallpaper
                          !url.Contains("ad", StringComparison.OrdinalIgnoreCase) && 
                          !url.Contains("advert", StringComparison.OrdinalIgnoreCase);
 
-            if (isM3u8 || isMp4)
+            bool isHeaderMatch = false;
+            try
+            {
+                if (e.Response != null && e.Response.Headers != null)
+                {
+                    if (e.Response.Headers.Contains("Content-Type"))
+                    {
+                        string contentType = e.Response.Headers.GetHeader("Content-Type");
+                        if (contentType.Contains("application/vnd.apple.mpegurl", StringComparison.OrdinalIgnoreCase) ||
+                            contentType.Contains("application/x-mpegURL", StringComparison.OrdinalIgnoreCase))
+                        {
+                            isHeaderMatch = true;
+                            try { File.AppendAllText(logPath, $"Sniffed m3u8 via Content-Type header: {url}\n"); } catch { }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(logPath, $"Error checking headers: {ex.Message}\n"); } catch { }
+            }
+
+            if (isM3u8 || isMp4 || isHeaderMatch)
             {
                 this.Dispatcher.Invoke(() =>
                 {
@@ -1978,6 +2075,7 @@ namespace DesktopVideoWallpaper
                         return;
                     }
 
+                    try { File.AppendAllText(logPath, $"WebResourceResponseReceived matched: isM3u8={isM3u8}, isMp4={isMp4}, isHeaderMatch={isHeaderMatch}, URL={url}\n"); } catch { }
                     LoadCleanPlayer(url);
                 });
             }
