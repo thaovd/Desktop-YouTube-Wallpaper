@@ -609,9 +609,24 @@ namespace DesktopVideoWallpaper
     window.updateTransform = updateTransform;
 
     function initTransform() {
-        if (window.IS_YOUTUBE) return;
-        updateTransform();
         window.addEventListener('resize', function() { updateTransform(); });
+        
+        function requestCoords() {
+            if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+                window.chrome.webview.postMessage(JSON.stringify({ type: 'get_coordinates' }));
+                return true;
+            }
+            return false;
+        }
+
+        if (!requestCoords()) {
+            var interval = setInterval(function() {
+                if (requestCoords()) {
+                    clearInterval(interval);
+                }
+            }, 100);
+            setTimeout(function() { clearInterval(interval); }, 5000);
+        }
     }
 
     if (document.documentElement) {
@@ -1196,6 +1211,40 @@ namespace DesktopVideoWallpaper
             });
         }
 
+        private void UpdateWpfBackground()
+        {
+            if (_currentPreset == null) return;
+            bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
+            if (isYoutube)
+            {
+                WpfBackground.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                string bgPath = _currentPreset.BackgroundPath ?? "";
+                if (!string.IsNullOrEmpty(bgPath))
+                {
+                    string fullBgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, bgPath);
+                    if (File.Exists(fullBgPath))
+                    {
+                        try
+                        {
+                            var bitmap = new BitmapImage();
+                            bitmap.BeginInit();
+                            bitmap.UriSource = new Uri(fullBgPath, UriKind.Absolute);
+                            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                            bitmap.EndInit();
+                            WpfBackground.Source = bitmap;
+                            WpfBackground.Visibility = Visibility.Visible;
+                            return;
+                        }
+                        catch { }
+                    }
+                }
+                WpfBackground.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private void UpdateHtmlBackgroundAndCoordinates()
         {
             if (_currentPreset == null || MyWebView.CoreWebView2 == null) return;
@@ -1226,10 +1275,10 @@ namespace DesktopVideoWallpaper
 
                 bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
                 
+                UpdateWpfBackground();
+                
                 if (isYoutube)
                 {
-                    WpfBackground.Visibility = Visibility.Collapsed;
-                    
                     string js = $@"
                         (function() {{
                             var bg = document.getElementById('bg-image');
@@ -1246,33 +1295,6 @@ namespace DesktopVideoWallpaper
                 }
                 else
                 {
-                    if (!string.IsNullOrEmpty(bgPath))
-                    {
-                        string fullBgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, bgPath);
-                        if (File.Exists(fullBgPath))
-                        {
-                            try
-                            {
-                                var bitmap = new BitmapImage();
-                                bitmap.BeginInit();
-                                bitmap.UriSource = new Uri(fullBgPath, UriKind.Absolute);
-                                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                                bitmap.EndInit();
-                                WpfBackground.Source = bitmap;
-                                WpfBackground.Visibility = Visibility.Visible;
-                            }
-                            catch { }
-                        }
-                        else
-                        {
-                            WpfBackground.Visibility = Visibility.Collapsed;
-                        }
-                    }
-                    else
-                    {
-                        WpfBackground.Visibility = Visibility.Collapsed;
-                    }
-
                     string js = $@"
                         (function() {{
                             window.TV_COORDINATES = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
@@ -1297,6 +1319,7 @@ namespace DesktopVideoWallpaper
             }
 
             bool isYoutube = IsYouTubeUrlOrId(_currentVideoId);
+            UpdateWpfBackground();
             
             double x0 = _currentPreset?.Is3D == true ? _currentPreset.X0 : (_currentPreset?.X ?? 0);
             double y0 = _currentPreset?.Is3D == true ? _currentPreset.Y0 : (_currentPreset?.Y ?? 0);
@@ -1994,21 +2017,80 @@ namespace DesktopVideoWallpaper
                 else if (!string.IsNullOrEmpty(message) && message.StartsWith("{"))
                 {
                     var msgData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(message);
-                    if (msgData != null && msgData.TryGetValue("type", out var typeElement) && typeElement.GetString() == "playback_time")
+                    if (msgData != null && msgData.TryGetValue("type", out var typeElement))
                     {
-                        if (msgData.TryGetValue("time", out var timeElement) && timeElement.TryGetDouble(out double seconds))
+                        string typeVal = typeElement.GetString() ?? "";
+                        if (typeVal == "get_coordinates")
                         {
                             this.Dispatcher.Invoke(() =>
                             {
                                 if (_currentPreset != null)
                                 {
-                                    if (Math.Abs(_currentPreset.LastTimestamp - seconds) >= 5)
+                                    double x0 = _currentPreset.Is3D ? _currentPreset.X0 : _currentPreset.X;
+                                    double y0 = _currentPreset.Is3D ? _currentPreset.Y0 : _currentPreset.Y;
+                                    double x1 = _currentPreset.Is3D ? _currentPreset.X1 : (_currentPreset.X + _currentPreset.Width);
+                                    double y1 = _currentPreset.Is3D ? _currentPreset.Y1 : _currentPreset.Y;
+                                    double x2 = _currentPreset.Is3D ? _currentPreset.X2 : (_currentPreset.X + _currentPreset.Width);
+                                    double y2 = _currentPreset.Is3D ? _currentPreset.Y2 : (_currentPreset.Y + _currentPreset.Height);
+                                    double x3 = _currentPreset.Is3D ? _currentPreset.X3 : _currentPreset.X;
+                                    double y3 = _currentPreset.Is3D ? _currentPreset.Y3 : (_currentPreset.Y + _currentPreset.Height);
+
+                                    string x0Str = x0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string y0Str = y0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string x1Str = x1.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string y1Str = y1.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string x2Str = x2.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string y2Str = y2.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string x3Str = x3.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                    string y3Str = y3.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+                                    bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
+
+                                    string js;
+                                    if (isYoutube)
                                     {
-                                        _currentPreset.LastTimestamp = seconds;
-                                        SavePresets();
+                                        js = $@"
+                                            (function() {{
+                                                window.TV_COORDINATES = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
+                                                window.IS_YOUTUBE = true;
+                                                if (typeof updateTransform === 'function') {{
+                                                    updateTransform({x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str});
+                                                }}
+                                            }})();
+                                        ";
                                     }
+                                    else
+                                    {
+                                        js = $@"
+                                            (function() {{
+                                                window.TV_COORDINATES = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
+                                                window.IS_YOUTUBE = false;
+                                                if (typeof updateTransform === 'function') {{
+                                                    updateTransform();
+                                                }}
+                                            }})();
+                                        ";
+                                    }
+                                    MyWebView.CoreWebView2.ExecuteScriptAsync(js);
                                 }
                             });
+                        }
+                        else if (typeVal == "playback_time")
+                        {
+                            if (msgData.TryGetValue("time", out var timeElement) && timeElement.TryGetDouble(out double seconds))
+                            {
+                                this.Dispatcher.Invoke(() =>
+                                {
+                                    if (_currentPreset != null)
+                                    {
+                                        if (Math.Abs(_currentPreset.LastTimestamp - seconds) >= 5)
+                                        {
+                                            _currentPreset.LastTimestamp = seconds;
+                                            SavePresets();
+                                        }
+                                    }
+                                });
+                            }
                         }
                     }
                 }
