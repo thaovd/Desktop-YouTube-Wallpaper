@@ -373,18 +373,124 @@ namespace DesktopVideoWallpaper
                 MyWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
                 MyWebView.WebMessageReceived += MyWebView_WebMessageReceived;
-                MyWebView.CoreWebView2.ContainsFullScreenElementChanged += (sender, args) =>
-                {
-                    this.Dispatcher.Invoke(() =>
-                    {
-                        if (MyWebView.CoreWebView2 != null)
-                        {
-                            bool isFullscreen = MyWebView.CoreWebView2.ContainsFullScreenElement;
-                            string js = $"if (typeof setFullscreenMode === 'function') {{ setFullscreenMode({(isFullscreen ? "true" : "false")}); }}";
-                            MyWebView.CoreWebView2.ExecuteScriptAsync(js);
-                        }
-                    });
-                };
+
+                string injectScript = @"
+(function() {
+    var fullscreenElement = null;
+    
+    // Tạo stylesheet định nghĩa class fake fullscreen
+    var styleEl = document.createElement('style');
+    styleEl.innerHTML = `
+        .webview-fake-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 2147483647 !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: black !important;
+        }
+        body.webview-has-fake-fullscreen {
+            overflow: hidden !important;
+        }
+    `;
+    
+    // Inject style vào document
+    if (document.head) {
+        document.head.appendChild(styleEl);
+    } else {
+        document.documentElement.appendChild(styleEl);
+    }
+
+    function triggerFullscreenChange() {
+        var event = new Event('fullscreenchange', { bubbles: true, cancelable: true });
+        document.dispatchEvent(event);
+        if (fullscreenElement) {
+            fullscreenElement.dispatchEvent(new Event('fullscreenchange', { bubbles: true, cancelable: true }));
+        }
+    }
+
+    var customRequestFullscreen = function() {
+        var el = this;
+        if (fullscreenElement) {
+            customExitFullscreen();
+        }
+        fullscreenElement = el;
+        el.classList.add('webview-fake-fullscreen');
+        document.body.classList.add('webview-has-fake-fullscreen');
+        triggerFullscreenChange();
+        return Promise.resolve();
+    };
+
+    Element.prototype.requestFullscreen = customRequestFullscreen;
+    if (Element.prototype.webkitRequestFullscreen) Element.prototype.webkitRequestFullscreen = customRequestFullscreen;
+    if (Element.prototype.mozRequestFullScreen) Element.prototype.mozRequestFullScreen = customRequestFullscreen;
+    if (Element.prototype.msRequestFullscreen) Element.prototype.msRequestFullscreen = customRequestFullscreen;
+
+    Object.defineProperty(document, 'fullscreenElement', {
+        get: function() { return fullscreenElement; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'webkitFullscreenElement', {
+        get: function() { return fullscreenElement; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'mozFullScreenElement', {
+        get: function() { return fullscreenElement; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'msFullscreenElement', {
+        get: function() { return fullscreenElement; },
+        configurable: true
+    });
+
+    Object.defineProperty(document, 'fullscreenEnabled', {
+        get: function() { return true; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'webkitFullscreenEnabled', {
+        get: function() { return true; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'mozFullScreenEnabled', {
+        get: function() { return true; },
+        configurable: true
+    });
+    Object.defineProperty(document, 'msFullscreenEnabled', {
+        get: function() { return true; },
+        configurable: true
+    });
+
+    var customExitFullscreen = function() {
+        if (fullscreenElement) {
+            fullscreenElement.classList.remove('webview-fake-fullscreen');
+            document.body.classList.remove('webview-has-fake-fullscreen');
+            fullscreenElement = null;
+            triggerFullscreenChange();
+        }
+        return Promise.resolve();
+    };
+
+    document.exitFullscreen = customExitFullscreen;
+    if (document.webkitExitFullscreen) document.webkitExitFullscreen = customExitFullscreen;
+    if (document.mozCancelFullScreen) document.mozCancelFullScreen = customExitFullscreen;
+    if (document.msExitFullscreen) document.msExitFullscreen = customExitFullscreen;
+
+    window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' || e.keyCode === 27) {
+            if (fullscreenElement) {
+                customExitFullscreen();
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }
+    }, true);
+})();
+";
+                await MyWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(injectScript);
 
                 string htmlFolder = Path.Combine(userDataFolder, "Html");
                 if (!Directory.Exists(htmlFolder))
@@ -648,39 +754,7 @@ namespace DesktopVideoWallpaper
         var isInteractiveActive = false;
         var corners = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
 
-        var originalBgDisplay = '{bgDisplay}';
-        var isFullscreenActive = false;
 
-        function setOriginalBgDisplay(display) {{
-            originalBgDisplay = display;
-            if (!isFullscreenActive) {{
-                var bg = document.getElementById('bg-image');
-                if (bg) bg.style.display = display;
-            }}
-        }}
-
-        function setFullscreenMode(active) {{
-            isFullscreenActive = active;
-            var container = document.querySelector('.video-container');
-            var bg = document.getElementById('bg-image');
-            if (container) {{
-                if (active) {{
-                    container.style.transform = 'none';
-                    container.style.width = '100vw';
-                    container.style.height = '100vh';
-                    container.style.left = '0';
-                    container.style.top = '0';
-                    container.style.zIndex = '99999';
-                    if (bg) bg.style.display = 'none';
-                }} else {{
-                    container.style.width = '100%';
-                    container.style.height = '100%';
-                    container.style.zIndex = '1';
-                    if (bg) bg.style.display = originalBgDisplay;
-                    updateTransform(corners[0], corners[1], corners[2], corners[3], corners[4], corners[5], corners[6], corners[7]);
-                }}
-            }}
-        }}
 
         function setInteractive(active) {{
             isInteractiveActive = active;
@@ -978,10 +1052,6 @@ namespace DesktopVideoWallpaper
                         var bg = document.getElementById('bg-image');
                         if (bg) {{
                             bg.src = '{bgUrl}';
-                        }}
-                        if (typeof setOriginalBgDisplay === 'function') {{
-                            setOriginalBgDisplay('{bgDisplay}');
-                        }} else if (bg) {{
                             bg.style.display = '{bgDisplay}';
                         }}
                         if (typeof updateTransform === 'function') {{
