@@ -132,15 +132,6 @@ namespace DesktopVideoWallpaper
         private const int SPIF_UPDATEINIFILE = 0x01;
         private const int SPIF_SENDCHANGE = 0x02;
 
-        [DllImport("user32.dll")]
-        public static extern bool ReleaseCapture();
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
-
-        private const int WM_NCLBUTTONDOWN = 0xA1;
-        private const int HTCAPTION = 0x2;
-
         private const uint SWP_NOZORDER = 0x0004;   // Giữ nguyên thứ tự Z-order hiện có.
         private const uint SWP_SHOWWINDOW = 0x0040; // Hiển thị cửa sổ sau khi định vị lại.
 
@@ -257,6 +248,8 @@ namespace DesktopVideoWallpaper
         private System.Windows.Forms.ToolStripMenuItem? _soundMenuItem;
         private System.Windows.Forms.ToolStripMenuItem? _interactiveMenuItem;
         private System.Windows.Forms.ToolStripMenuItem? _zoomMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem? _screensMenuItem;
+        private int _targetScreenIndex = 0;
         private bool _isInteractiveMode = false;
         private static bool _isExplicitShutdown = false;
         
@@ -266,32 +259,11 @@ namespace DesktopVideoWallpaper
         private System.Windows.Point _lastClickPoint = new System.Windows.Point();
         private IntPtr _workerwHandle = IntPtr.Zero;
         private IntPtr _wpfHwnd = IntPtr.Zero;
-        private System.Windows.Forms.Screen _targetScreen = System.Windows.Forms.Screen.PrimaryScreen ?? System.Windows.Forms.Screen.AllScreens[0];
 
         public MainWindow()
         {
             InitializeComponent();
             System.Windows.Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            this.LocationChanged += Window_LocationChanged;
-        }
-
-        private void Window_LocationChanged(object? sender, EventArgs e)
-        {
-            if (_isInteractiveMode)
-            {
-                try
-                {
-                    IntPtr wpfHwnd = new WindowInteropHelper(this).Handle;
-                    var currentScreen = System.Windows.Forms.Screen.FromHandle(wpfHwnd);
-                    if (currentScreen != null && _targetScreen != null && currentScreen.DeviceName != _targetScreen.DeviceName)
-                    {
-                        _targetScreen = currentScreen;
-                        string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
-                        try { File.AppendAllText(logPath, $"Target screen changed via drag to: {currentScreen.DeviceName}\n"); } catch { }
-                    }
-                }
-                catch { }
-            }
         }
 
         /// <summary>
@@ -303,6 +275,8 @@ namespace DesktopVideoWallpaper
             base.OnSourceInitialized(e);
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
             try { File.WriteAllText(logPath, "OnSourceInitialized started\n"); } catch { }
+
+            LoadSettings();
 
             try
             {
@@ -464,11 +438,11 @@ namespace DesktopVideoWallpaper
                 }
 
                 // 3. Định vị lại cửa sổ bao phủ toàn bộ màn hình thực tế
-                var targetScreen = _targetScreen ?? System.Windows.Forms.Screen.PrimaryScreen;
-                int screenWidth = targetScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
-                int screenHeight = targetScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
-                int screenX = targetScreen?.Bounds.X ?? 0;
-                int screenY = targetScreen?.Bounds.Y ?? 0;
+                var targetScreen = GetTargetScreen();
+                int screenWidth = targetScreen.Bounds.Width;
+                int screenHeight = targetScreen.Bounds.Height;
+                int screenX = targetScreen.Bounds.X;
+                int screenY = targetScreen.Bounds.Y;
 
                 int x = screenX;
                 int y = screenY;
@@ -716,37 +690,12 @@ namespace DesktopVideoWallpaper
             updateTransform(corners[0], corners[1], corners[2], corners[3], corners[4], corners[5], corners[6], corners[7]);
         }}, 100);
 
-        var startX = 0;
-        var startY = 0;
-        var hasMoved = false;
-
-        document.addEventListener('mousedown', function(e) {{
-            if (!isInteractiveActive) return;
-            
-            var container = document.querySelector('.video-container');
-            if (container && !container.contains(e.target)) {{
-                startX = e.screenX;
-                startY = e.screenY;
-                hasMoved = false;
-                window.chrome.webview.postMessage(""drag_window"");
-            }}
-        }});
-
-        document.addEventListener('mousemove', function(e) {{
-            if (!isInteractiveActive) return;
-            if (Math.abs(e.screenX - startX) > 5 || Math.abs(e.screenY - startY) > 5) {{
-                hasMoved = true;
-            }}
-        }});
-
         document.addEventListener('click', function(e) {{
             if (!isInteractiveActive) return;
             
             var container = document.querySelector('.video-container');
             if (container && !container.contains(e.target)) {{
-                if (!hasMoved) {{
-                    window.chrome.webview.postMessage(""lock_interaction"");
-                }}
+                window.chrome.webview.postMessage(""lock_interaction"");
             }}
         }});
 
@@ -838,6 +787,46 @@ namespace DesktopVideoWallpaper
             {
                 System.Windows.MessageBox.Show($"Lỗi lưu Presets: {ex.Message}", "Lỗi Presets", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private System.Windows.Forms.Screen GetTargetScreen()
+        {
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            if (_targetScreenIndex >= 0 && _targetScreenIndex < screens.Length)
+            {
+                return screens[_targetScreenIndex];
+            }
+            return System.Windows.Forms.Screen.PrimaryScreen ?? screens[0];
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+                if (File.Exists(settingsPath))
+                {
+                    string json = File.ReadAllText(settingsPath);
+                    var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+                    if (dict != null && dict.TryGetValue("TargetScreenIndex", out var val))
+                    {
+                        _targetScreenIndex = val.GetInt32();
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+                var dict = new Dictionary<string, int> { { "TargetScreenIndex", _targetScreenIndex } };
+                string json = JsonSerializer.Serialize(dict);
+                File.WriteAllText(settingsPath, json);
+            }
+            catch { }
         }
 
         private void ApplyCurrentPreset()
@@ -1043,6 +1032,9 @@ namespace DesktopVideoWallpaper
                 _zoomMenuItem = new System.Windows.Forms.ToolStripMenuItem("Tỷ lệ giao diện điều khiển (Zoom)");
                 BuildZoomMenu();
 
+                _screensMenuItem = new System.Windows.Forms.ToolStripMenuItem("Chọn màn hình hiển thị");
+                BuildScreensMenu();
+
                 _presetsMenuItem = new System.Windows.Forms.ToolStripMenuItem("Chọn nền máy tính / Preset");
                 BuildPresetsMenu();
 
@@ -1065,6 +1057,7 @@ namespace DesktopVideoWallpaper
                 contextMenu.Items.Add(_soundMenuItem);
                 contextMenu.Items.Add(_interactiveMenuItem);
                 contextMenu.Items.Add(_zoomMenuItem);
+                contextMenu.Items.Add(_screensMenuItem);
                 contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 contextMenu.Items.Add(_presetsMenuItem);
                 contextMenu.Items.Add(calibrateItem);
@@ -1080,6 +1073,39 @@ namespace DesktopVideoWallpaper
             catch (Exception ex)
             {
                 System.Windows.MessageBox.Show($"Lỗi khởi tạo Tray Icon: {ex.Message}", "Lỗi hệ thống", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BuildScreensMenu()
+        {
+            if (_screensMenuItem == null) return;
+            _screensMenuItem.DropDownItems.Clear();
+
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            for (int i = 0; i < screens.Length; i++)
+            {
+                var screen = screens[i];
+                string screenName = $"Màn hình {i + 1}" + (screen.Primary ? " (Chính)" : "");
+                var item = new System.Windows.Forms.ToolStripMenuItem(screenName);
+                item.Checked = (i == _targetScreenIndex);
+                int capturedIndex = i;
+                item.Click += (s, e) =>
+                {
+                    _targetScreenIndex = capturedIndex;
+                    SaveSettings();
+                    
+                    // Định vị lại hình nền ngay lập tức
+                    SetupWallpaperWindow();
+                    
+                    // Nếu đang trong chế độ tương tác, cập nhật luôn vị trí của chế độ tương tác
+                    if (_isInteractiveMode)
+                    {
+                        ToggleInteractiveMode(true);
+                    }
+                    
+                    BuildScreensMenu();
+                };
+                _screensMenuItem.DropDownItems.Add(item);
             }
         }
 
@@ -1405,11 +1431,11 @@ namespace DesktopVideoWallpaper
             long style = GetWindowLongPtr(wpfHwnd, GWL_STYLE).ToInt64();
             long extendedStyle = GetWindowLongPtr(wpfHwnd, GWL_EXSTYLE).ToInt64();
 
-            var targetScreen = _targetScreen ?? System.Windows.Forms.Screen.PrimaryScreen;
-            int screenWidth = targetScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
-            int screenHeight = targetScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
-            int screenX = targetScreen?.Bounds.X ?? 0;
-            int screenY = targetScreen?.Bounds.Y ?? 0;
+            var targetScreen = GetTargetScreen();
+            int screenWidth = targetScreen.Bounds.Width;
+            int screenHeight = targetScreen.Bounds.Height;
+            int screenX = targetScreen.Bounds.X;
+            int screenY = targetScreen.Bounds.Y;
 
             if (_isInteractiveMode)
             {
@@ -1493,15 +1519,6 @@ namespace DesktopVideoWallpaper
                     this.Dispatcher.Invoke(() =>
                     {
                         ToggleInteractiveMode(false);
-                    });
-                }
-                else if (message == "drag_window")
-                {
-                    this.Dispatcher.Invoke(() =>
-                    {
-                        IntPtr wpfHwnd = new WindowInteropHelper(this).Handle;
-                        ReleaseCapture();
-                        SendMessage(wpfHwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
                     });
                 }
                 else if (!string.IsNullOrEmpty(message) && message.StartsWith("{"))
