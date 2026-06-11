@@ -1667,6 +1667,16 @@ namespace DesktopVideoWallpaper
                 _notifyIcon.Visible = false;
                 _notifyIcon.Dispose();
             }
+
+            try
+            {
+                if (MyWebView != null)
+                {
+                    MyWebView.Dispose();
+                }
+            }
+            catch { }
+
             base.OnClosed(e);
 
             if (!_isExplicitShutdown)
@@ -1675,11 +1685,31 @@ namespace DesktopVideoWallpaper
                 // Khởi tạo lại MainWindow sau 1 giây để màn hình ổn định.
                 Task.Delay(1000).ContinueWith(t =>
                 {
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    try
                     {
-                        var newWindow = new MainWindow();
-                        newWindow.Show();
-                    });
+                        var app = System.Windows.Application.Current;
+                        if (app != null && !app.Dispatcher.HasShutdownStarted)
+                        {
+                            app.Dispatcher.Invoke(() =>
+                            {
+                                try
+                                {
+                                    var newWindow = new MainWindow();
+                                    newWindow.Show();
+                                }
+                                catch (Exception ex)
+                                {
+                                    string errPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log");
+                                    try { File.AppendAllText(errPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error creating MainWindow in OnClosed: {ex}\n"); } catch { }
+                                }
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        string errPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log");
+                        try { File.AppendAllText(errPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error in recreate task: {ex}\n"); } catch { }
+                    }
                 });
             }
         }
