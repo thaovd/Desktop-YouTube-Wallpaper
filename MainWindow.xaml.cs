@@ -107,6 +107,12 @@ namespace DesktopVideoWallpaper
             int cy,
             uint uFlags);
 
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        private const int DWMWA_EXCLUDED_FROM_PEEK = 12;
+        private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+
         private const uint SWP_NOZORDER = 0x0004;   // Giữ nguyên thứ tự Z-order hiện có.
         private const uint SWP_SHOWWINDOW = 0x0040; // Hiển thị cửa sổ sau khi định vị lại.
 
@@ -292,7 +298,8 @@ namespace DesktopVideoWallpaper
                 }
                 else
                 {
-                    try { File.AppendAllText(logPath, "Warning: WorkerW not found!\n"); } catch { }
+                    _workerwHandle = progman; // Fallback to Progman
+                    try { File.AppendAllText(logPath, "Warning: WorkerW not found, falling back to Progman!\n"); } catch { }
                 }
 
                 int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -388,16 +395,27 @@ namespace DesktopVideoWallpaper
             {
                 IntPtr wpfHwnd = new WindowInteropHelper(this).Handle;
 
-                // 1. Nhúng cửa sổ WPF vào làm con của WorkerW
+                // 0. Loại bỏ cửa sổ khỏi DWM Peek / Transitions để tránh xung đột với Explorer / Task View
+                try
+                {
+                    int excludeValue = 1;
+                    DwmSetWindowAttribute(wpfHwnd, DWMWA_EXCLUDED_FROM_PEEK, ref excludeValue, sizeof(int));
+                    
+                    int transitionValue = 1;
+                    DwmSetWindowAttribute(wpfHwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref transitionValue, sizeof(int));
+                }
+                catch { }
+
                 if (_workerwHandle != IntPtr.Zero)
                 {
+                    // 1. Chuyển đổi Window Style của WPF từ POPUP thành CHILD TRƯỚC.
+                    long style = GetWindowLongPtr(wpfHwnd, GWL_STYLE).ToInt64();
+                    style = (style & ~WS_POPUP) | WS_CHILD;
+                    SetWindowLongPtr(wpfHwnd, GWL_STYLE, new IntPtr(style));
+
+                    // 2. Nhúng cửa sổ WPF vào làm con của WorkerW/Progman.
                     SetParent(wpfHwnd, _workerwHandle);
                 }
-
-                // 2. Chuyển đổi Window Style của WPF từ POPUP thành CHILD.
-                long style = GetWindowLongPtr(wpfHwnd, GWL_STYLE).ToInt64();
-                style = (style & ~WS_POPUP) | WS_CHILD;
-                SetWindowLongPtr(wpfHwnd, GWL_STYLE, new IntPtr(style));
 
                 // 3. Định vị lại cửa sổ bao phủ toàn bộ màn hình thực tế
                 int screenWidth = GetSystemMetrics(SM_CXSCREEN);
