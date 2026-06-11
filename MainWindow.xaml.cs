@@ -711,6 +711,12 @@ namespace DesktopVideoWallpaper
                 p.IsLastActive = (p == _currentPreset);
             }
             _currentVideoId = _currentPreset.VideoId;
+
+            // Đảm bảo tất cả preset sử dụng chung VideoId đang hoạt động
+            foreach (var p in _presets)
+            {
+                p.VideoId = _currentVideoId;
+            }
         }
 
         private void SavePresets()
@@ -986,6 +992,7 @@ namespace DesktopVideoWallpaper
                     foreach (var p in _presets)
                     {
                         p.IsLastActive = (p == _currentPreset);
+                        p.VideoId = _currentVideoId; // Giữ nguyên video đang phát
                     }
                     ApplyCurrentPreset();
                     SavePresets();
@@ -1273,11 +1280,11 @@ namespace DesktopVideoWallpaper
                     if (!string.IsNullOrWhiteSpace(newId) && newId != _currentVideoId)
                     {
                         _currentVideoId = newId;
-                        if (_currentPreset != null)
+                        foreach (var preset in _presets)
                         {
-                            _currentPreset.VideoId = newId;
-                            SavePresets();
+                            preset.VideoId = newId;
                         }
+                        SavePresets();
                         ReloadYouTubeVideo();
                     }
                 }
