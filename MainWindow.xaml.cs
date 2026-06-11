@@ -245,6 +245,7 @@ namespace DesktopVideoWallpaper
         private const string AppVersion = "v1.0.0";
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private string _currentVideoId = "jfKfPfyJRdk"; // ID video hiện tại
+        private string? _coordinateScriptId;
         private List<WallpaperPreset> _presets = new();
         private WallpaperPreset? _currentPreset;
         private System.Windows.Forms.ToolStripMenuItem? _presetsMenuItem;
@@ -368,6 +369,7 @@ namespace DesktopVideoWallpaper
                 await MyWebView.EnsureCoreWebView2Async(env);
                 try { File.AppendAllText(logPath, "EnsureCoreWebView2Async finished successfully\n"); } catch { }
 
+                MyWebView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
                 MyWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 MyWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 MyWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
@@ -376,10 +378,13 @@ namespace DesktopVideoWallpaper
                 MyWebView.CoreWebView2.NavigationStarting += (sender, e) =>
                 {
                     string uri = e.Uri ?? "";
-                    if (!uri.StartsWith("http://app.local/", StringComparison.OrdinalIgnoreCase) && 
-                        !uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+                    if (IsYouTubeUrlOrId(_currentVideoId))
                     {
-                        e.Cancel = true;
+                        if (!uri.StartsWith("http://app.local/", StringComparison.OrdinalIgnoreCase) && 
+                            !uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+                        {
+                            e.Cancel = true;
+                        }
                     }
                 };
 
@@ -528,6 +533,98 @@ namespace DesktopVideoWallpaper
             }
         }
     }, true);
+
+    function updateTransform(coordArgs) {
+        var corners = coordArgs || window.TV_COORDINATES;
+        if (!corners || window.IS_YOUTUBE) return;
+        
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+
+        var p0 = { x: corners[0] * w, y: corners[1] * h };
+        var p1 = { x: corners[2] * w, y: corners[3] * h };
+        var p2 = { x: corners[4] * w, y: corners[5] * h };
+        var p3 = { x: corners[6] * w, y: corners[7] * h };
+
+        var dx1 = p1.x - p2.x;
+        var dx2 = p3.x - p2.x;
+        var sx = p0.x - p1.x + p2.x - p3.x;
+        var dy1 = p1.y - p2.y;
+        var dy2 = p3.y - p2.y;
+        var sy = p0.y - p1.y + p2.y - p3.y;
+
+        var h00, h01, h02, h10, h11, h12, h20, h21;
+
+        if (Math.abs(sx) < 1e-5 && Math.abs(sy) < 1e-5) {
+            h00 = p1.x - p0.x;
+            h01 = p2.x - p1.x;
+            h02 = p0.x;
+            h10 = p1.y - p0.y;
+            h11 = p2.y - p1.y;
+            h12 = p0.y;
+            h20 = 0;
+            h21 = 0;
+        } else {
+            var den = dx1 * dy2 - dx2 * dy1;
+            if (Math.abs(den) < 1e-5) return;
+            var g = (sx * dy2 - sy * dx2) / den;
+            var h_val = (dx1 * sy - dy1 * sx) / den;
+
+            h00 = p1.x - p0.x + g * p1.x;
+            h01 = p3.x - p0.x + h_val * p3.x;
+            h02 = p0.x;
+            h10 = p1.y - p0.y + g * p1.y;
+            h11 = p3.y - p0.y + h_val * p3.y;
+            h12 = p0.y;
+            h20 = g;
+            h21 = h_val;
+        }
+
+        var m11 = h00 / w;
+        var m12 = h10 / w;
+        var m14 = h20 / w;
+        var m21 = h01 / h;
+        var m22 = h11 / h;
+        var m24 = h21 / h;
+        var m41 = h02;
+        var m42 = h12;
+        var m44 = 1;
+
+        var transformStr = 'matrix3d(' + 
+            m11 + ',' + m12 + ',0,' + m14 + ',' +
+            m21 + ',' + m22 + ',0,' + m24 + ',0,0,1,0,' +
+            m41 + ',' + m42 + ',0,' + m44 + ')';
+
+        // Apply styles to html element to warp the top level website inside the TV screen bounds
+        document.documentElement.style.setProperty('transform', transformStr, 'important');
+        document.documentElement.style.setProperty('transform-origin', '0 0', 'important');
+        document.documentElement.style.setProperty('width', '100vw', 'important');
+        document.documentElement.style.setProperty('height', '100vh', 'important');
+        document.documentElement.style.setProperty('position', 'fixed', 'important');
+        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+        document.documentElement.style.setProperty('box-sizing', 'border-box', 'important');
+        document.documentElement.style.setProperty('margin', '0', 'important');
+        document.documentElement.style.setProperty('padding', '0', 'important');
+    }
+    window.updateTransform = updateTransform;
+
+    function initTransform() {
+        if (window.IS_YOUTUBE) return;
+        updateTransform();
+        window.addEventListener('resize', function() { updateTransform(); });
+    }
+
+    if (document.documentElement) {
+        initTransform();
+    } else {
+        var observer = new MutationObserver(function() {
+            if (document.documentElement) {
+                initTransform();
+                observer.disconnect();
+            }
+        });
+        observer.observe(document, { childList: true, subtree: true });
+    }
 })();
 ";
                 await MyWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(injectScript);
@@ -1042,10 +1139,50 @@ namespace DesktopVideoWallpaper
                     MyWebView.CoreWebView2.IsMuted = _currentPreset.IsMuted;
                 }
 
-                if (_currentVideoId != _currentPreset.VideoId || 
-                    MyWebView.Source == null || 
-                    MyWebView.Source.ToString() == "about:blank" || 
-                    !MyWebView.Source.ToString().Contains("app.local"))
+                bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
+                bool needsReload = false;
+                
+                if (_currentVideoId != _currentPreset.VideoId || MyWebView.Source == null)
+                {
+                    needsReload = true;
+                }
+                else
+                {
+                    string sourceStr = MyWebView.Source.ToString();
+                    if (isYoutube)
+                    {
+                        if (sourceStr == "about:blank" || !sourceStr.Contains("app.local"))
+                        {
+                            needsReload = true;
+                        }
+                    }
+                    else
+                    {
+                        string targetUrl = _currentPreset.VideoId;
+                        if (!targetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                            !targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                            !targetUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetUrl = "https://" + targetUrl;
+                        }
+                        
+                        try
+                        {
+                            var targetUri = new Uri(targetUrl);
+                            var currentUri = MyWebView.Source;
+                            if (currentUri.Host != targetUri.Host)
+                            {
+                                needsReload = true;
+                            }
+                        }
+                        catch
+                        {
+                            needsReload = true;
+                        }
+                    }
+                }
+
+                if (needsReload)
                 {
                     _currentVideoId = _currentPreset.VideoId;
                     try { File.AppendAllText(logPath, "ApplyCurrentPreset: Calling ReloadYouTubeVideo...\n"); } catch { }
@@ -1087,19 +1224,65 @@ namespace DesktopVideoWallpaper
                 string x3Str = x3.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 string y3Str = y3.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-                string js = $@"
-                    (function() {{
-                        var bg = document.getElementById('bg-image');
-                        if (bg) {{
-                            bg.src = '{bgUrl}';
-                            bg.style.display = '{bgDisplay}';
-                        }}
-                        if (typeof updateTransform === 'function') {{
-                            updateTransform({x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str});
-                        }}
-                    }})();
-                ";
-                MyWebView.CoreWebView2.ExecuteScriptAsync(js);
+                bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
+                
+                if (isYoutube)
+                {
+                    WpfBackground.Visibility = Visibility.Collapsed;
+                    
+                    string js = $@"
+                        (function() {{
+                            var bg = document.getElementById('bg-image');
+                            if (bg) {{
+                                bg.src = '{bgUrl}';
+                                bg.style.display = '{bgDisplay}';
+                            }}
+                            if (typeof updateTransform === 'function') {{
+                                updateTransform({x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str});
+                            }}
+                        }})();
+                    ";
+                    MyWebView.CoreWebView2.ExecuteScriptAsync(js);
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(bgPath))
+                    {
+                        string fullBgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, bgPath);
+                        if (File.Exists(fullBgPath))
+                        {
+                            try
+                            {
+                                var bitmap = new BitmapImage();
+                                bitmap.BeginInit();
+                                bitmap.UriSource = new Uri(fullBgPath, UriKind.Absolute);
+                                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                                bitmap.EndInit();
+                                WpfBackground.Source = bitmap;
+                                WpfBackground.Visibility = Visibility.Visible;
+                            }
+                            catch { }
+                        }
+                        else
+                        {
+                            WpfBackground.Visibility = Visibility.Collapsed;
+                        }
+                    }
+                    else
+                    {
+                        WpfBackground.Visibility = Visibility.Collapsed;
+                    }
+
+                    string js = $@"
+                        (function() {{
+                            window.TV_COORDINATES = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
+                            if (typeof updateTransform === 'function') {{
+                                updateTransform();
+                            }}
+                        }})();
+                    ";
+                    MyWebView.CoreWebView2.ExecuteScriptAsync(js);
+                }
             });
         }
 
@@ -1113,22 +1296,111 @@ namespace DesktopVideoWallpaper
                 return;
             }
 
-            string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
-            string htmlFolder = Path.Combine(userDataFolder, "Html");
-            string htmlPath = Path.Combine(htmlFolder, "index.html");
-            try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: htmlPath={htmlPath}\n"); } catch { }
+            bool isYoutube = IsYouTubeUrlOrId(_currentVideoId);
             
-            string html = GetYouTubeEmbedHtml(_currentVideoId);
-            
-            if (!Directory.Exists(htmlFolder))
-            {
-                Directory.CreateDirectory(htmlFolder);
-            }
-            File.WriteAllText(htmlPath, html, System.Text.Encoding.UTF8);
-            try { File.AppendAllText(logPath, "ReloadYouTubeVideo: index.html written successfully\n"); } catch { }
+            double x0 = _currentPreset?.Is3D == true ? _currentPreset.X0 : (_currentPreset?.X ?? 0);
+            double y0 = _currentPreset?.Is3D == true ? _currentPreset.Y0 : (_currentPreset?.Y ?? 0);
+            double x1 = _currentPreset?.Is3D == true ? _currentPreset.X1 : ((_currentPreset?.X ?? 0) + (_currentPreset?.Width ?? 1));
+            double y1 = _currentPreset?.Is3D == true ? _currentPreset.Y1 : (_currentPreset?.Y ?? 0);
+            double x2 = _currentPreset?.Is3D == true ? _currentPreset.X2 : ((_currentPreset?.X ?? 0) + (_currentPreset?.Width ?? 1));
+            double y2 = _currentPreset?.Is3D == true ? _currentPreset.Y2 : ((_currentPreset?.Y ?? 0) + (_currentPreset?.Height ?? 1));
+            double x3 = _currentPreset?.Is3D == true ? _currentPreset.X3 : (_currentPreset?.X ?? 0);
+            double y3 = _currentPreset?.Is3D == true ? _currentPreset.Y3 : ((_currentPreset?.Y ?? 0) + (_currentPreset?.Height ?? 1));
 
-            MyWebView.CoreWebView2.Navigate("http://app.local/index.html");
-            try { File.AppendAllText(logPath, "ReloadYouTubeVideo: Navigate called\n"); } catch { }
+            string x0Str = x0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string y0Str = y0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string x1Str = x1.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string y1Str = y1.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string x2Str = x2.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string y2Str = y2.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string x3Str = x3.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string y3Str = y3.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            string coordScript = $@"
+                window.TV_COORDINATES = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
+                window.IS_YOUTUBE = {(isYoutube ? "true" : "false")};
+            ";
+
+            if (_coordinateScriptId != null)
+            {
+                try { MyWebView.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(_coordinateScriptId); } catch { }
+            }
+            try
+            {
+                var task = MyWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(coordScript);
+                task.Wait(1000);
+                _coordinateScriptId = task.Result;
+            }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(logPath, $"AddScriptToExecuteOnDocumentCreatedAsync coordScript failed: {ex.Message}\n"); } catch { }
+            }
+
+            if (isYoutube)
+            {
+                WpfBackground.Visibility = Visibility.Collapsed;
+                
+                string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
+                string htmlFolder = Path.Combine(userDataFolder, "Html");
+                string htmlPath = Path.Combine(htmlFolder, "index.html");
+                try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: htmlPath={htmlPath}\n"); } catch { }
+                
+                string html = GetYouTubeEmbedHtml(_currentVideoId);
+                
+                if (!Directory.Exists(htmlFolder))
+                {
+                    Directory.CreateDirectory(htmlFolder);
+                }
+                File.WriteAllText(htmlPath, html, System.Text.Encoding.UTF8);
+                try { File.AppendAllText(logPath, "ReloadYouTubeVideo: index.html written successfully\n"); } catch { }
+
+                MyWebView.CoreWebView2.Navigate("http://app.local/index.html");
+                try { File.AppendAllText(logPath, "ReloadYouTubeVideo: Navigate called\n"); } catch { }
+            }
+            else
+            {
+                string bgPath = _currentPreset?.BackgroundPath ?? "";
+                if (!string.IsNullOrEmpty(bgPath))
+                {
+                    string fullBgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, bgPath);
+                    if (File.Exists(fullBgPath))
+                    {
+                        try
+                        {
+                            var bitmap = new BitmapImage();
+                            bitmap.BeginInit();
+                            bitmap.UriSource = new Uri(fullBgPath, UriKind.Absolute);
+                            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                            bitmap.EndInit();
+                            WpfBackground.Source = bitmap;
+                            WpfBackground.Visibility = Visibility.Visible;
+                        }
+                        catch (Exception ex)
+                        {
+                            try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: load bg error {ex.Message}\n"); } catch { }
+                        }
+                    }
+                    else
+                    {
+                        WpfBackground.Visibility = Visibility.Collapsed;
+                    }
+                }
+                else
+                {
+                    WpfBackground.Visibility = Visibility.Collapsed;
+                }
+
+                string targetUrl = _currentVideoId;
+                if (!targetUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                    !targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                    !targetUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetUrl = "https://" + targetUrl;
+                }
+
+                MyWebView.CoreWebView2.Navigate(targetUrl);
+                try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Navigate to {targetUrl} called\n"); } catch { }
+            }
         }
 
         private void InitializeTrayIcon()
