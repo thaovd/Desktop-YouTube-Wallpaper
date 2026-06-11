@@ -360,7 +360,7 @@ namespace DesktopVideoWallpaper
                 string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
                 try { File.AppendAllText(logPath, $"UserDataFolder: {userDataFolder}\n"); } catch { }
 
-                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required --disable-web-security");
                 try { File.AppendAllText(logPath, "Creating CoreWebView2Environment...\n"); } catch { }
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
                 try { File.AppendAllText(logPath, "CoreWebView2Environment created successfully\n"); } catch { }
@@ -609,6 +609,7 @@ namespace DesktopVideoWallpaper
     window.updateTransform = updateTransform;
 
     function initTransform() {
+        if (window !== window.top) return;
         window.addEventListener('resize', function() { updateTransform(); });
         
         function requestCoords() {
@@ -1213,8 +1214,14 @@ namespace DesktopVideoWallpaper
 
         private void UpdateWpfBackground()
         {
-            if (_currentPreset == null) return;
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+            if (_currentPreset == null)
+            {
+                try { File.AppendAllText(logPath, "UpdateWpfBackground: _currentPreset is null!\n"); } catch { }
+                return;
+            }
             bool isYoutube = IsYouTubeUrlOrId(_currentPreset.VideoId);
+            try { File.AppendAllText(logPath, $"UpdateWpfBackground: isYoutube={isYoutube}, VideoId={_currentPreset.VideoId}\n"); } catch { }
             if (isYoutube)
             {
                 WpfBackground.Visibility = Visibility.Collapsed;
@@ -1222,9 +1229,11 @@ namespace DesktopVideoWallpaper
             else
             {
                 string bgPath = _currentPreset.BackgroundPath ?? "";
+                try { File.AppendAllText(logPath, $"UpdateWpfBackground: bgPath={bgPath}\n"); } catch { }
                 if (!string.IsNullOrEmpty(bgPath))
                 {
                     string fullBgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, bgPath);
+                    try { File.AppendAllText(logPath, $"UpdateWpfBackground: fullBgPath={fullBgPath}, Exists={File.Exists(fullBgPath)}\n"); } catch { }
                     if (File.Exists(fullBgPath))
                     {
                         try
@@ -1236,9 +1245,13 @@ namespace DesktopVideoWallpaper
                             bitmap.EndInit();
                             WpfBackground.Source = bitmap;
                             WpfBackground.Visibility = Visibility.Visible;
+                            try { File.AppendAllText(logPath, "UpdateWpfBackground: Bitmap successfully loaded and set to Visible!\n"); } catch { }
                             return;
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            try { File.AppendAllText(logPath, $"UpdateWpfBackground: Exception loading bitmap: {ex.Message}\n{ex.StackTrace}\n"); } catch { }
+                        }
                     }
                 }
                 WpfBackground.Visibility = Visibility.Collapsed;
@@ -1419,8 +1432,51 @@ namespace DesktopVideoWallpaper
                     targetUrl = "https://" + targetUrl;
                 }
 
-                MyWebView.CoreWebView2.Navigate(targetUrl);
-                try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Navigate to {targetUrl} called\n"); } catch { }
+                string userDataFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2_Cache");
+                string htmlFolder = Path.Combine(userDataFolder, "Html");
+                string wrapperPath = Path.Combine(htmlFolder, "wrapper.html");
+
+                string wrapperHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""utf-8"">
+    <style>
+        html, body {{
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+        }}
+        iframe {{
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+        }}
+    </style>
+</head>
+<body>
+    <iframe id=""web-iframe"" src=""{targetUrl}"" allow=""autoplay; encrypted-media; picture-in-picture; fullscreen"" allowfullscreen=""true""></iframe>
+</body>
+</html>";
+
+                try
+                {
+                    if (!Directory.Exists(htmlFolder))
+                    {
+                        Directory.CreateDirectory(htmlFolder);
+                    }
+                    File.WriteAllText(wrapperPath, wrapperHtml, System.Text.Encoding.UTF8);
+                }
+                catch (Exception ex)
+                {
+                    try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Failed to write wrapper.html: {ex.Message}\n"); } catch { }
+                }
+
+                MyWebView.CoreWebView2.Navigate("http://app.local/wrapper.html");
+                try { File.AppendAllText(logPath, $"ReloadYouTubeVideo: Navigate to http://app.local/wrapper.html (framing {targetUrl}) called\n"); } catch { }
             }
         }
 
@@ -2004,9 +2060,11 @@ namespace DesktopVideoWallpaper
 
         private void MyWebView_WebMessageReceived(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
         {
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
             try
             {
                 string message = e.TryGetWebMessageAsString();
+                try { File.AppendAllText(logPath, $"WebMessageReceived: message={message}\n"); } catch { }
                 if (message == "lock_interaction")
                 {
                     this.Dispatcher.Invoke(() =>
@@ -2020,6 +2078,7 @@ namespace DesktopVideoWallpaper
                     if (msgData != null && msgData.TryGetValue("type", out var typeElement))
                     {
                         string typeVal = typeElement.GetString() ?? "";
+                        try { File.AppendAllText(logPath, $"WebMessageReceived: typeVal={typeVal}\n"); } catch { }
                         if (typeVal == "get_coordinates")
                         {
                             this.Dispatcher.Invoke(() =>
@@ -2071,6 +2130,7 @@ namespace DesktopVideoWallpaper
                                             }})();
                                         ";
                                     }
+                                    try { File.AppendAllText(logPath, $"WebMessageReceived: Executing script on WebView2 for coordinates...\n"); } catch { }
                                     MyWebView.CoreWebView2.ExecuteScriptAsync(js);
                                 }
                             });
