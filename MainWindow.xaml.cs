@@ -373,6 +373,18 @@ namespace DesktopVideoWallpaper
                 MyWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
                 MyWebView.WebMessageReceived += MyWebView_WebMessageReceived;
+                MyWebView.CoreWebView2.ContainsFullScreenElementChanged += (sender, args) =>
+                {
+                    this.Dispatcher.Invoke(() =>
+                    {
+                        if (MyWebView.CoreWebView2 != null)
+                        {
+                            bool isFullscreen = MyWebView.CoreWebView2.ContainsFullScreenElement;
+                            string js = $"if (typeof setFullscreenMode === 'function') {{ setFullscreenMode({(isFullscreen ? "true" : "false")}); }}";
+                            MyWebView.CoreWebView2.ExecuteScriptAsync(js);
+                        }
+                    });
+                };
 
                 string htmlFolder = Path.Combine(userDataFolder, "Html");
                 if (!Directory.Exists(htmlFolder))
@@ -635,6 +647,40 @@ namespace DesktopVideoWallpaper
 
         var isInteractiveActive = false;
         var corners = [{x0Str}, {y0Str}, {x1Str}, {y1Str}, {x2Str}, {y2Str}, {x3Str}, {y3Str}];
+
+        var originalBgDisplay = '{bgDisplay}';
+        var isFullscreenActive = false;
+
+        function setOriginalBgDisplay(display) {{
+            originalBgDisplay = display;
+            if (!isFullscreenActive) {{
+                var bg = document.getElementById('bg-image');
+                if (bg) bg.style.display = display;
+            }}
+        }}
+
+        function setFullscreenMode(active) {{
+            isFullscreenActive = active;
+            var container = document.querySelector('.video-container');
+            var bg = document.getElementById('bg-image');
+            if (container) {{
+                if (active) {{
+                    container.style.transform = 'none';
+                    container.style.width = '100vw';
+                    container.style.height = '100vh';
+                    container.style.left = '0';
+                    container.style.top = '0';
+                    container.style.zIndex = '99999';
+                    if (bg) bg.style.display = 'none';
+                }} else {{
+                    container.style.width = '100%';
+                    container.style.height = '100%';
+                    container.style.zIndex = '1';
+                    if (bg) bg.style.display = originalBgDisplay;
+                    updateTransform(corners[0], corners[1], corners[2], corners[3], corners[4], corners[5], corners[6], corners[7]);
+                }}
+            }}
+        }}
 
         function setInteractive(active) {{
             isInteractiveActive = active;
@@ -932,6 +978,10 @@ namespace DesktopVideoWallpaper
                         var bg = document.getElementById('bg-image');
                         if (bg) {{
                             bg.src = '{bgUrl}';
+                        }}
+                        if (typeof setOriginalBgDisplay === 'function') {{
+                            setOriginalBgDisplay('{bgDisplay}');
+                        }} else if (bg) {{
                             bg.style.display = '{bgDisplay}';
                         }}
                         if (typeof updateTransform === 'function') {{
