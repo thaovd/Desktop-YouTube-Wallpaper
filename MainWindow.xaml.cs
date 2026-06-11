@@ -321,14 +321,9 @@ namespace DesktopVideoWallpaper
                     try { File.AppendAllText(logPath, "Warning: WorkerW not found, falling back to Progman!\n"); } catch { }
                 }
 
-                var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
-                int screenWidth = primaryScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
-                int screenHeight = primaryScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
-                int screenX = primaryScreen?.Bounds.X ?? 0;
-                int screenY = primaryScreen?.Bounds.Y ?? 0;
-
-                SetWindowPos(_wpfHwnd, IntPtr.Zero, screenX, screenY, screenWidth, screenHeight, SWP_SHOWWINDOW);
-                try { File.AppendAllText(logPath, $"Window sized to {screenWidth}x{screenHeight} at {screenX},{screenY}\n"); } catch { }
+                // Khởi tạo và đưa cửa sổ vào luồng hình nền WorkerW ngay lập tức để tránh lem màu màn phụ
+                SetupWallpaperWindow();
+                try { File.AppendAllText(logPath, "SetupWallpaperWindow finished in OnSourceInitialized\n"); } catch { }
             }
             catch (Exception ex)
             {
@@ -388,9 +383,7 @@ namespace DesktopVideoWallpaper
                     AppDomain.CurrentDomain.BaseDirectory,
                     CoreWebView2HostResourceAccessKind.Allow);
 
-                try { File.AppendAllText(logPath, "Calling SetupWallpaperWindow...\n"); } catch { }
-                SetupWallpaperWindow();
-                try { File.AppendAllText(logPath, "SetupWallpaperWindow finished\n"); } catch { }
+
 
                 try { File.AppendAllText(logPath, "Calling ApplyCurrentPreset...\n"); } catch { }
                 ApplyCurrentPreset();
