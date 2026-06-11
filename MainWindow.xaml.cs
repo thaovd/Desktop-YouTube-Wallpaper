@@ -1094,6 +1094,9 @@ namespace DesktopVideoWallpaper
                     _targetScreenIndex = capturedIndex;
                     SaveSettings();
                     
+                    // Khôi phục lại wallpaper hệ thống ở màn hình cũ
+                    RestoreSystemWallpaper();
+                    
                     // Định vị lại hình nền ngay lập tức
                     SetupWallpaperWindow();
                     
