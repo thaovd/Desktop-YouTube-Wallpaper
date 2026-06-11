@@ -217,6 +217,9 @@ namespace DesktopVideoWallpaper
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
+        [DllImport("user32.dll")]
+        private static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
+
         private bool IsDesktopWindow(IntPtr hWnd, IntPtr wpfHwnd)
         {
             if (hWnd == IntPtr.Zero) return false;
@@ -1094,9 +1097,6 @@ namespace DesktopVideoWallpaper
                     _targetScreenIndex = capturedIndex;
                     SaveSettings();
                     
-                    // Khôi phục lại wallpaper hệ thống ở màn hình cũ
-                    RestoreSystemWallpaper();
-                    
                     // Định vị lại hình nền ngay lập tức
                     SetupWallpaperWindow();
                     
@@ -1105,6 +1105,9 @@ namespace DesktopVideoWallpaper
                     {
                         ToggleInteractiveMode(true);
                     }
+
+                    // Làm mới nhanh giao diện Desktop để khôi phục wallpaper cũ mà không gây lag
+                    RefreshDesktop();
                     
                     BuildScreensMenu();
                 };
@@ -1890,6 +1893,32 @@ namespace DesktopVideoWallpaper
             {
                 try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log"), $"RestoreSystemWallpaper error: {ex}\n"); } catch { }
             }
+        }
+
+        private void RefreshDesktop()
+        {
+            try
+            {
+                IntPtr progman = FindWindow("Progman", null);
+                if (progman != IntPtr.Zero)
+                {
+                    RedrawWindow(progman, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0008);
+                }
+
+                EnumWindows((hwnd, lParam) =>
+                {
+                    var className = new System.Text.StringBuilder(256);
+                    if (GetClassName(hwnd, className, className.Capacity) > 0)
+                    {
+                        if (className.ToString() == "WorkerW")
+                        {
+                            RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0008);
+                        }
+                    }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
         }
     }
 }
