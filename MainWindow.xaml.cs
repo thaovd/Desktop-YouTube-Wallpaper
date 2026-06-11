@@ -113,6 +113,18 @@ namespace DesktopVideoWallpaper
         private const int DWMWA_EXCLUDED_FROM_PEEK = 12;
         private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
+
         private const uint SWP_NOZORDER = 0x0004;   // Giữ nguyên thứ tự Z-order hiện có.
         private const uint SWP_SHOWWINDOW = 0x0040; // Hiển thị cửa sổ sau khi định vị lại.
 
@@ -302,10 +314,14 @@ namespace DesktopVideoWallpaper
                     try { File.AppendAllText(logPath, "Warning: WorkerW not found, falling back to Progman!\n"); } catch { }
                 }
 
-                int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-                int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-                SetWindowPos(_wpfHwnd, IntPtr.Zero, 0, 0, screenWidth, screenHeight, SWP_SHOWWINDOW);
-                try { File.AppendAllText(logPath, $"Window sized to {screenWidth}x{screenHeight}\n"); } catch { }
+                var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
+                int screenWidth = primaryScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
+                int screenHeight = primaryScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
+                int screenX = primaryScreen?.Bounds.X ?? 0;
+                int screenY = primaryScreen?.Bounds.Y ?? 0;
+
+                SetWindowPos(_wpfHwnd, IntPtr.Zero, screenX, screenY, screenWidth, screenHeight, SWP_SHOWWINDOW);
+                try { File.AppendAllText(logPath, $"Window sized to {screenWidth}x{screenHeight} at {screenX},{screenY}\n"); } catch { }
             }
             catch (Exception ex)
             {
@@ -418,9 +434,26 @@ namespace DesktopVideoWallpaper
                 }
 
                 // 3. Định vị lại cửa sổ bao phủ toàn bộ màn hình thực tế
-                int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-                int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-                SetWindowPos(wpfHwnd, IntPtr.Zero, 0, 0, screenWidth, screenHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
+                var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
+                int screenWidth = primaryScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
+                int screenHeight = primaryScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
+                int screenX = primaryScreen?.Bounds.X ?? 0;
+                int screenY = primaryScreen?.Bounds.Y ?? 0;
+
+                int x = screenX;
+                int y = screenY;
+
+                if (_workerwHandle != IntPtr.Zero)
+                {
+                    RECT workerwRect;
+                    if (GetWindowRect(_workerwHandle, out workerwRect))
+                    {
+                        x = screenX - workerwRect.Left;
+                        y = screenY - workerwRect.Top;
+                    }
+                }
+
+                SetWindowPos(wpfHwnd, IntPtr.Zero, x, y, screenWidth, screenHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
 
                 // 4. Thiết lập Click-Through
                 long exStyle = GetWindowLongPtr(wpfHwnd, GWL_EXSTYLE).ToInt64();
