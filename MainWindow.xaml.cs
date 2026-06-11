@@ -570,7 +570,7 @@ namespace DesktopVideoWallpaper
                 {
                     targetUrl = "https://" + targetUrl;
                 }
-                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
+                videoElementHtml = $"<iframe id=\"player\" src=\"{targetUrl}\" allow=\"autoplay; encrypted-media; clipboard-write; picture-in-picture; fullscreen\" allowfullscreen=\"true\" webkitallowfullscreen=\"true\" mozallowfullscreen=\"true\" style=\"width: 100%; height: 100%; border: none;\"></iframe>";
                 scriptHtml = "var player = null;";
             }
 
