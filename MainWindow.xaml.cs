@@ -8,6 +8,8 @@ using System.Windows.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace DesktopVideoWallpaper
 {
@@ -212,6 +214,7 @@ namespace DesktopVideoWallpaper
         // CƠ CHẾ KHỞI TẠO VÀ LOGIC CHÍNH
         // ==========================================
 
+        private const string AppVersion = "v1.0.0";
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private string _currentVideoId = "jfKfPfyJRdk"; // ID video hiện tại
         private List<WallpaperPreset> _presets = new();
@@ -364,6 +367,9 @@ namespace DesktopVideoWallpaper
                 MyWebView.Visibility = Visibility.Visible;
                 LoadingPanel.Visibility = Visibility.Collapsed;
                 try { File.AppendAllText(logPath, "WebView2 initialization fully completed!\n"); } catch { }
+                
+                // Kiểm tra cập nhật ứng dụng từ GitHub
+                _ = Task.Run(() => CheckForUpdatesAsync());
             }
             catch (Exception ex)
             {
@@ -1506,6 +1512,112 @@ namespace DesktopVideoWallpaper
             }
 
             return urlOrId;
+        }
+
+        private async Task CheckForUpdatesAsync()
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; DesktopVideoWallpaper/1.0)");
+                    var localVerStr = AppVersion.Replace("v", "").Trim();
+                    var localVer = new Version(localVerStr);
+
+                    string json = await client.GetStringAsync("https://api.github.com/repos/thaovd/Desktop-YouTube-Wallpaper/releases/latest");
+                    using (JsonDocument doc = JsonDocument.Parse(json))
+                    {
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("tag_name", out var tagProp))
+                        {
+                            string remoteTag = tagProp.GetString() ?? "";
+                            string remoteVerStr = remoteTag.Replace("v", "").Trim();
+                            if (Version.TryParse(remoteVerStr, out Version? remoteVer) && remoteVer > localVer)
+                            {
+                                string downloadUrl = "";
+                                if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == JsonValueKind.Array)
+                                {
+                                    foreach (var asset in assetsProp.EnumerateArray())
+                                    {
+                                        if (asset.TryGetProperty("name", out var nameProp) && 
+                                            asset.TryGetProperty("browser_download_url", out var urlProp))
+                                        {
+                                            string name = nameProp.GetString() ?? "";
+                                            if (name.EndsWith(".exe"))
+                                            {
+                                                downloadUrl = urlProp.GetString() ?? "";
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (!string.IsNullOrEmpty(downloadUrl))
+                                {
+                                    string finalDownloadUrl = downloadUrl;
+                                    this.Dispatcher.Invoke(() =>
+                                    {
+                                        var result = System.Windows.MessageBox.Show(
+                                            $"Đã có phiên bản mới {remoteTag}! Bạn có muốn tải về và cài đặt cập nhật ngay không?",
+                                            "Cập nhật ứng dụng",
+                                            MessageBoxButton.YesNo,
+                                            MessageBoxImage.Question);
+
+                                        if (result == MessageBoxResult.Yes)
+                                        {
+                                            Task.Run(() => DownloadAndRunInstaller(finalDownloadUrl));
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+                try { File.AppendAllText(logPath, $"CheckForUpdatesAsync error: {ex.Message}\n"); } catch { }
+            }
+        }
+
+        private async Task DownloadAndRunInstaller(string downloadUrl)
+        {
+            try
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "DesktopVideoWallpaper_Setup_Update.exe");
+                
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; DesktopVideoWallpaper/1.0)");
+                    using (var response = await client.GetAsync(downloadUrl))
+                    {
+                        response.EnsureSuccessStatusCode();
+                        using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            await response.Content.CopyToAsync(fs);
+                        }
+                    }
+                }
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = tempFile,
+                    UseShellExecute = true
+                });
+
+                this.Dispatcher.Invoke(() =>
+                {
+                    System.Windows.Application.Current.Shutdown();
+                });
+            }
+            catch (Exception ex)
+            {
+                this.Dispatcher.Invoke(() =>
+                {
+                    System.Windows.MessageBox.Show($"Lỗi khi tải hoặc cài đặt bản cập nhật: {ex.Message}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
+                });
+            }
         }
 
         protected override void OnClosed(EventArgs e)
