@@ -132,6 +132,15 @@ namespace DesktopVideoWallpaper
         private const int SPIF_UPDATEINIFILE = 0x01;
         private const int SPIF_SENDCHANGE = 0x02;
 
+        [DllImport("user32.dll")]
+        public static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION = 0x2;
+
         private const uint SWP_NOZORDER = 0x0004;   // Giữ nguyên thứ tự Z-order hiện có.
         private const uint SWP_SHOWWINDOW = 0x0040; // Hiển thị cửa sổ sau khi định vị lại.
 
@@ -257,11 +266,32 @@ namespace DesktopVideoWallpaper
         private System.Windows.Point _lastClickPoint = new System.Windows.Point();
         private IntPtr _workerwHandle = IntPtr.Zero;
         private IntPtr _wpfHwnd = IntPtr.Zero;
+        private System.Windows.Forms.Screen _targetScreen = System.Windows.Forms.Screen.PrimaryScreen ?? System.Windows.Forms.Screen.AllScreens[0];
 
         public MainWindow()
         {
             InitializeComponent();
             System.Windows.Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            this.LocationChanged += Window_LocationChanged;
+        }
+
+        private void Window_LocationChanged(object? sender, EventArgs e)
+        {
+            if (_isInteractiveMode)
+            {
+                try
+                {
+                    IntPtr wpfHwnd = new WindowInteropHelper(this).Handle;
+                    var currentScreen = System.Windows.Forms.Screen.FromHandle(wpfHwnd);
+                    if (currentScreen != null && _targetScreen != null && currentScreen.DeviceName != _targetScreen.DeviceName)
+                    {
+                        _targetScreen = currentScreen;
+                        string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.log");
+                        try { File.AppendAllText(logPath, $"Target screen changed via drag to: {currentScreen.DeviceName}\n"); } catch { }
+                    }
+                }
+                catch { }
+            }
         }
 
         /// <summary>
@@ -434,11 +464,11 @@ namespace DesktopVideoWallpaper
                 }
 
                 // 3. Định vị lại cửa sổ bao phủ toàn bộ màn hình thực tế
-                var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
-                int screenWidth = primaryScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
-                int screenHeight = primaryScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
-                int screenX = primaryScreen?.Bounds.X ?? 0;
-                int screenY = primaryScreen?.Bounds.Y ?? 0;
+                var targetScreen = _targetScreen ?? System.Windows.Forms.Screen.PrimaryScreen;
+                int screenWidth = targetScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
+                int screenHeight = targetScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
+                int screenX = targetScreen?.Bounds.X ?? 0;
+                int screenY = targetScreen?.Bounds.Y ?? 0;
 
                 int x = screenX;
                 int y = screenY;
@@ -686,12 +716,37 @@ namespace DesktopVideoWallpaper
             updateTransform(corners[0], corners[1], corners[2], corners[3], corners[4], corners[5], corners[6], corners[7]);
         }}, 100);
 
+        var startX = 0;
+        var startY = 0;
+        var hasMoved = false;
+
+        document.addEventListener('mousedown', function(e) {{
+            if (!isInteractiveActive) return;
+            
+            var container = document.querySelector('.video-container');
+            if (container && !container.contains(e.target)) {{
+                startX = e.screenX;
+                startY = e.screenY;
+                hasMoved = false;
+                window.chrome.webview.postMessage(""drag_window"");
+            }}
+        }});
+
+        document.addEventListener('mousemove', function(e) {{
+            if (!isInteractiveActive) return;
+            if (Math.abs(e.screenX - startX) > 5 || Math.abs(e.screenY - startY) > 5) {{
+                hasMoved = true;
+            }}
+        }});
+
         document.addEventListener('click', function(e) {{
             if (!isInteractiveActive) return;
             
             var container = document.querySelector('.video-container');
             if (container && !container.contains(e.target)) {{
-                window.chrome.webview.postMessage(""lock_interaction"");
+                if (!hasMoved) {{
+                    window.chrome.webview.postMessage(""lock_interaction"");
+                }}
             }}
         }});
 
@@ -1349,8 +1404,12 @@ namespace DesktopVideoWallpaper
             IntPtr wpfHwnd = helper.Handle;
             long style = GetWindowLongPtr(wpfHwnd, GWL_STYLE).ToInt64();
             long extendedStyle = GetWindowLongPtr(wpfHwnd, GWL_EXSTYLE).ToInt64();
-            int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-            int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+            var targetScreen = _targetScreen ?? System.Windows.Forms.Screen.PrimaryScreen;
+            int screenWidth = targetScreen?.Bounds.Width ?? GetSystemMetrics(SM_CXSCREEN);
+            int screenHeight = targetScreen?.Bounds.Height ?? GetSystemMetrics(SM_CYSCREEN);
+            int screenX = targetScreen?.Bounds.X ?? 0;
+            int screenY = targetScreen?.Bounds.Y ?? 0;
 
             if (_isInteractiveMode)
             {
@@ -1365,9 +1424,9 @@ namespace DesktopVideoWallpaper
                 extendedStyle &= ~WS_EX_TRANSPARENT;
                 SetWindowLongPtr(wpfHwnd, GWL_EXSTYLE, new IntPtr(extendedStyle));
 
-                // Đặt lên trên cùng và định vị lại kích thước fullscreen
+                // Đặt lên trên cùng và định vị lại kích thước fullscreen trên màn hình tương ứng
                 this.Topmost = true;
-                SetWindowPos(wpfHwnd, new IntPtr(-1), 0, 0, screenWidth, screenHeight, SWP_SHOWWINDOW);
+                SetWindowPos(wpfHwnd, new IntPtr(-1), screenX, screenY, screenWidth, screenHeight, SWP_SHOWWINDOW);
 
                 this.Dispatcher.Invoke(() =>
                 {
@@ -1393,8 +1452,21 @@ namespace DesktopVideoWallpaper
                 extendedStyle |= WS_EX_TRANSPARENT;
                 SetWindowLongPtr(wpfHwnd, GWL_EXSTYLE, new IntPtr(extendedStyle));
 
-                // Định vị lại phía sau icon desktop
-                SetWindowPos(wpfHwnd, IntPtr.Zero, 0, 0, screenWidth, screenHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
+                // Định vị lại phía sau icon desktop trên màn hình đích tương ứng
+                int x = screenX;
+                int y = screenY;
+
+                if (_workerwHandle != IntPtr.Zero)
+                {
+                    RECT workerwRect;
+                    if (GetWindowRect(_workerwHandle, out workerwRect))
+                    {
+                        x = screenX - workerwRect.Left;
+                        y = screenY - workerwRect.Top;
+                    }
+                }
+
+                SetWindowPos(wpfHwnd, IntPtr.Zero, x, y, screenWidth, screenHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
             }
 
             // Cập nhật trạng thái hiển thị của YouTube Player (cho phép click và hiện thanh điều khiển) qua JS
@@ -1421,6 +1493,15 @@ namespace DesktopVideoWallpaper
                     this.Dispatcher.Invoke(() =>
                     {
                         ToggleInteractiveMode(false);
+                    });
+                }
+                else if (message == "drag_window")
+                {
+                    this.Dispatcher.Invoke(() =>
+                    {
+                        IntPtr wpfHwnd = new WindowInteropHelper(this).Handle;
+                        ReleaseCapture();
+                        SendMessage(wpfHwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
                     });
                 }
                 else if (!string.IsNullOrEmpty(message) && message.StartsWith("{"))
