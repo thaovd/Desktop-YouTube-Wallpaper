@@ -1,0 +1,20 @@
+# Build folders
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# WebView2 Cache
+WebView2_Cache/
+
+# Log files
+*.log
+
+# Inno Setup output
+installer_output/
+
+# VS and tool folders
+.vs/
+.history/
