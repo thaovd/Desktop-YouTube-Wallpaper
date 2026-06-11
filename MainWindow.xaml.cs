@@ -844,30 +844,58 @@ namespace DesktopVideoWallpaper
                 _notifyIcon = new System.Windows.Forms.NotifyIcon();
                 _notifyIcon.Text = "Desktop Video Wallpaper";
                 
-                using (System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(16, 16))
+                string localIconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
+                if (File.Exists(localIconPath))
                 {
-                    using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(bmp))
+                    _notifyIcon.Icon = new System.Drawing.Icon(localIconPath);
+                }
+                else
+                {
+                    try
                     {
-                        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                        g.Clear(System.Drawing.Color.Transparent);
-                        
-                        using (System.Drawing.SolidBrush brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(79, 70, 229)))
+                        string assemblyLocation = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                        if (string.IsNullOrEmpty(assemblyLocation))
                         {
-                            g.FillEllipse(brush, 1, 1, 14, 14);
+                            assemblyLocation = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "";
                         }
-                        
-                        using (System.Drawing.SolidBrush playBrush = new System.Drawing.SolidBrush(System.Drawing.Color.White))
+                        if (!string.IsNullOrEmpty(assemblyLocation) && File.Exists(assemblyLocation))
                         {
-                            System.Drawing.PointF[] points = {
-                                new System.Drawing.PointF(6f, 4.5f),
-                                new System.Drawing.PointF(6f, 11.5f),
-                                new System.Drawing.PointF(11.5f, 8f)
-                            };
-                            g.FillPolygon(playBrush, points);
+                            _notifyIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(assemblyLocation);
                         }
                     }
-                    IntPtr hIcon = bmp.GetHicon();
-                    _notifyIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
+                    catch
+                    {
+                        // Fallback
+                    }
+                }
+
+                if (_notifyIcon.Icon == null)
+                {
+                    using (System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(16, 16))
+                    {
+                        using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(bmp))
+                        {
+                            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                            g.Clear(System.Drawing.Color.Transparent);
+                            
+                            using (System.Drawing.SolidBrush brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(79, 70, 229)))
+                            {
+                                g.FillEllipse(brush, 1, 1, 14, 14);
+                            }
+                            
+                            using (System.Drawing.SolidBrush playBrush = new System.Drawing.SolidBrush(System.Drawing.Color.White))
+                            {
+                                System.Drawing.PointF[] points = {
+                                    new System.Drawing.PointF(6f, 4.5f),
+                                    new System.Drawing.PointF(6f, 11.5f),
+                                    new System.Drawing.PointF(11.5f, 8f)
+                                };
+                                g.FillPolygon(playBrush, points);
+                            }
+                        }
+                        IntPtr hIcon = bmp.GetHicon();
+                        _notifyIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
+                    }
                 }
                 
                 var contextMenu = new System.Windows.Forms.ContextMenuStrip();

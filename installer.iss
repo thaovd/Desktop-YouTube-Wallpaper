@@ -21,6 +21,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=C:\Users\Vuthao\Desktop\desktop-yt\installer_output
 OutputBaseFilename=DesktopVideoWallpaper_Setup
+SetupIconFile=C:\Users\Vuthao\Desktop\desktop-yt\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

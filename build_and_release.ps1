@@ -12,9 +12,10 @@ Stop-Process -Name "msedgewebview2" -Force -ErrorAction SilentlyContinue
 # 2. Chay dotnet publish ban Self-Contained Release
 & "C:\Program Files\dotnet\dotnet.exe" publish -c Release -r win-x64 --self-contained true
 
-# 3. Dong bo hoa presets.json va background sang thu muc publish
+# 3. Dong bo hoa presets.json, background va icon sang thu muc publish
 Copy-Item -Path "bin\Debug\net10.0-windows\presets.json" -Destination "bin\Release\net10.0-windows\win-x64\publish\presets.json" -Force -ErrorAction SilentlyContinue
 Copy-Item -Path "bin\Debug\net10.0-windows\backgroud\*" -Destination "bin\Release\net10.0-windows\win-x64\publish\backgroud\" -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item -Path "icon.ico" -Destination "bin\Release\net10.0-windows\win-x64\publish\icon.ico" -Force -ErrorAction SilentlyContinue
 
 Write-Host "=========================================" -ForegroundColor Green
 Write-Host "2. BIEN DICH BO CAI DAT (INNO SETUP)..." -ForegroundColor Green
